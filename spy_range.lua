@@ -1,7 +1,7 @@
 function widget:GetInfo()
     return {
-        name      = "Spy emp and decloack range v1",
-        desc      = "Cloacks spy by default and draws a circle that displays spy decloack range (green) and spy emp range (blue)",
+        name      = "Spy emp and decloack range v2",
+        desc      = "Cloacks spy by default and draws a circle that displays spy decloack range (orange) and spy emp range (blue)",
         author    = "[teh]decay aka [teh]undertaker",
         date      = "28 dec 2013",
         license   = "The BSD License",
@@ -14,9 +14,11 @@ end
 -- project page on github: https://github.com/jamerlan/spy_range
 
 --Changelog
--- v2 (for future)
+-- v2 [teh]decay Don't draw circles when GUI is hidden
 
 local GetUnitPosition     = Spring.GetUnitPosition
+local glColor = gl.Color
+local glDepthTest = gl.DepthTest
 local glDrawGroundCircle  = gl.DrawGroundCircle
 local GetUnitDefID = Spring.GetUnitDefID
 local lower                 = string.lower
@@ -25,6 +27,7 @@ local spGetSpectatingState = Spring.GetSpectatingState
 local spGetMyPlayerID		= Spring.GetMyPlayerID
 local spGetPlayerInfo		= Spring.GetPlayerInfo
 local spGiveOrderToUnit = Spring.GiveOrderToUnit
+local spIsGUIHidden = Spring.IsGUIHidden
 
 local cmdCloack = CMD.CLOAK
 
@@ -122,7 +125,9 @@ function widget:DrawWorldPreUnit()
         notInSpecfullmode = false
     end
 
-    gl.DepthTest(true)
+    if spIsGUIHidden() then return end
+
+    glDepthTest(true)
 
     for unitID in pairs(spies) do
         local x,y,z = GetUnitPosition(unitID)
@@ -133,15 +138,15 @@ function widget:DrawWorldPreUnit()
             local selfdBlastId = weapNamTab[lower(udef[selfdTag])].id
             local selfdBlastRadius = weapTab[selfdBlastId][aoeTag]
 
-            gl.Color(1, .6, .3, .8)
+            glColor(1, .6, .3, .8)
             glDrawGroundCircle(x, y, z, udef["decloakDistance"], blastCircleDivs)
 
-            gl.Color(0, 0, 1, .5)
+            glColor(0, 0, 1, .5)
             glDrawGroundCircle(x, y, z, selfdBlastRadius, blastCircleDivs)
 
         end
     end
-    gl.DepthTest(false)
+    glDepthTest(false)
 end
 
 function widget:PlayerChanged(playerID)
