@@ -1,6 +1,6 @@
 function widget:GetInfo()
     return {
-        name      = "Spy emp and decloack range v3",
+        name      = "Spy emp and decloack range v4",
         desc      = "Cloacks spy by default and draws a circle that displays spy(and gremlin) decloack range (orange) and spy emp range (blue)",
         author    = "[teh]decay aka [teh]undertaker",
         date      = "14 feb 2015",
