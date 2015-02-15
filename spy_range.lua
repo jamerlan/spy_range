@@ -3,10 +3,10 @@ function widget:GetInfo()
         name      = "Spy emp and decloack range v3",
         desc      = "Cloacks spy by default and draws a circle that displays spy(and gremlin) decloack range (orange) and spy emp range (blue)",
         author    = "[teh]decay aka [teh]undertaker",
-        date      = "28 dec 2013",
+        date      = "14 feb 2015",
         license   = "The BSD License",
         layer     = 0,
-        version   = 3,
+        version   = 4,
         enabled   = true  -- loaded by default
     }
 end
@@ -16,27 +16,48 @@ end
 --Changelog
 -- v2 [teh]decay Don't draw circles when GUI is hidden
 -- v3 [teh]decay Added gremlin decloack range + set them on hold fire and hold pos
+-- v4 Floris Added fade on camera distance changed to thicker and more transparant line style + options + onlyDrawRangeWhenSelected
 
-local GetUnitPosition     = Spring.GetUnitPosition
-local glColor = gl.Color
-local glDepthTest = gl.DepthTest
-local glDrawGroundCircle  = gl.DrawGroundCircle
-local GetUnitDefID = Spring.GetUnitDefID
+
+--------------------------------------------------------------------------------
+-- OPTIONS
+--------------------------------------------------------------------------------
+
+local onlyDrawRangeWhenSelected	= true
+local fadeOnCameraDistance		= true
+local showLineGlow 				= true		-- a ticker but faint 2nd line will be drawn underneath	
+local opacityMultiplier			= 1.15
+local fadeMultiplier			= 0.9		-- lower value: fades out sooner
+local circleDivs				= 64		-- detail of range circle
+
+--------------------------------------------------------------------------------
+--------------------------------------------------------------------------------
+
+local glColor 				= gl.Color
+local glLineWidth 			= gl.LineWidth
+local glDepthTest			= gl.DepthTest
+local glDrawGroundCircle	= gl.DrawGroundCircle
+local GetUnitDefID			= Spring.GetUnitDefID
 local lower                 = string.lower
-local spGetAllUnits = Spring.GetAllUnits
-local spGetSpectatingState = Spring.GetSpectatingState
+local spGetAllUnits			= Spring.GetAllUnits
+local spGetSpectatingState	= Spring.GetSpectatingState
 local spGetMyPlayerID		= Spring.GetMyPlayerID
 local spGetPlayerInfo		= Spring.GetPlayerInfo
-local spGiveOrderToUnit = Spring.GiveOrderToUnit
-local spIsGUIHidden = Spring.IsGUIHidden
+local spGiveOrderToUnit		= Spring.GiveOrderToUnit
+local spIsGUIHidden			= Spring.IsGUIHidden
+local spGetCameraPosition 	= Spring.GetCameraPosition
+local spValidUnitID			= Spring.ValidUnitID
+local spGetUnitPosition		= Spring.GetUnitPosition
+local spIsSphereInView		= Spring.IsSphereInView
+local spIsUnitSelected		= Spring.IsUnitSelected
 
-local CMD_MOVE_STATE    = CMD.MOVE_STATE
-local cmdCloack = CMD.CLOAK
-local cmdFireState = CMD.FIRE_STATE
+local CMD_MOVE_STATE		= CMD.MOVE_STATE
+local cmdCloack				= CMD.CLOAK
+local cmdFireState			= CMD.FIRE_STATE
 
-local blastCircleDivs = 100
-local weapNamTab		  = WeaponDefNames
-local weapTab		      = WeaponDefs
+
+local weapNamTab			= WeaponDefNames
+local weapTab				= WeaponDefs
 local udefTab				= UnitDefs
 
 local selfdTag = "selfDExplosion"
@@ -50,8 +71,7 @@ local coreSpyId = coreSpy.id
 local armSpyId = armSpy.id
 local armGremlinId = armGremlin.id
 
-local spies = {}
-local gremlins = {}
+local units = {}
 
 local spectatorMode = false
 local notInSpecfullmode = false
@@ -82,23 +102,19 @@ end
 
 function widget:UnitFinished(unitID, unitDefID, unitTeam)
     if isSpy(unitDefID) then
-        spies[unitID] = true
+		addSpy(unitID, unitDefID)
         cloackSpy(unitID)
     end
 
     if isGremlin(unitDefID) then
-        gremlins[unitID] = true
+		addGremlin(unitID, unitDefID)
         processGremlin(unitID)
     end
 end
 
 function widget:UnitDestroyed(unitID, unitDefID, unitTeam)
-    if spies[unitID] then
-        spies[unitID] = nil
-    end
-
-    if gremlins[unitID] then
-        gremlins[unitID] = nil
+    if units[unitID] then
+        units[unitID] = nil
     end
 end
 
@@ -106,35 +122,52 @@ function widget:UnitEnteredLos(unitID, unitTeam)
     if not spectatorMode then
         local unitDefID = GetUnitDefID(unitID)
         if isSpy(unitDefID) then
-            spies[unitID] = true
+			addSpy(unitID, unitDefID)
         end
 
         if isGremlin(unitDefID) then
-            gremlins[unitID] = true
+			addGremlin(unitID, unitDefID)
         end
     end
 end
 
+
+function addSpy(unitID, unitDefID)
+	
+	local udef = udefTab[unitDefID]
+	local selfdBlastId = weapNamTab[lower(udef[selfdTag])].id
+	local selfdBlastRadius = weapTab[selfdBlastId][aoeTag]
+	units[unitID] = {udef["decloakDistance"],selfdBlastRadius}
+end
+
+function addGremlin(unitID, unitDefID)
+	
+	local udef = udefTab[unitDefID]
+	units[unitID] = {udef["decloakDistance"],0}
+end
+
 function widget:UnitCreated(unitID, unitDefID, teamID, builderID)
+	if not spValidUnitID(unitID) then return end --because units can be created AND destroyed on the same frame, in which case luaui thinks they are destroyed before they are created
+		
     if isSpy(unitDefID) then
-        spies[unitID] = true
+		addSpy(unitID, unitDefID)
         cloackSpy(unitID)
     end
 
     if isGremlin(unitDefID) then
-        gremlins[unitID] = true
+		addGremlin(unitID, unitDefID)
         processGremlin(unitID)
     end
 end
 
 function widget:UnitTaken(unitID, unitDefID, unitTeam, newTeam)
     if isSpy(unitDefID) then
-        spies[unitID] = true
+		addSpy(unitID, unitDefID)
         cloackSpy(unitID)
     end
 
     if isGremlin(unitDefID) then
-        gremlins[unitID] = true
+		addGremlin(unitID, unitDefID)
         processGremlin(unitID)
     end
 end
@@ -142,24 +175,20 @@ end
 
 function widget:UnitGiven(unitID, unitDefID, unitTeam, oldTeam)
     if isSpy(unitDefID) then
-        spies[unitID] = true
+		addSpy(unitID, unitDefID)
         cloackSpy(unitID)
     end
 
     if isGremlin(unitDefID) then
-        gremlins[unitID] = true
+		addGremlin(unitID, unitDefID)
         processGremlin(unitID)
     end
 end
 
 function widget:UnitLeftLos(unitID, unitDefID, unitTeam)
     if not spectatorMode then
-        if spies[unitID] then
-            spies[unitID] = nil
-        end
-
-        if gremlins[unitID] then
-            gremlins[unitID] = nil
+        if units[unitID] then
+            units[unitID] = nil
         end
     end
 end
@@ -178,38 +207,52 @@ function widget:DrawWorldPreUnit()
 
     if spIsGUIHidden() then return end
 
+	local camX, camY, camZ = spGetCameraPosition()
+	
     glDepthTest(true)
 
-    for unitID in pairs(spies) do
-        local x,y,z = GetUnitPosition(unitID)
-        local udefId = GetUnitDefID(unitID);
-        if udefId ~= nil then
-            local udef = udefTab[udefId]
-
-            local selfdBlastId = weapNamTab[lower(udef[selfdTag])].id
-            local selfdBlastRadius = weapTab[selfdBlastId][aoeTag]
-
-            glColor(1, .6, .3, .8)
-            glDrawGroundCircle(x, y, z, udef["decloakDistance"], blastCircleDivs)
-
-            glColor(0, 0, 1, .5)
-            glDrawGroundCircle(x, y, z, selfdBlastRadius, blastCircleDivs)
-
-        end
-    end
-
-    for unitID in pairs(gremlins) do
-        local x,y,z = GetUnitPosition(unitID)
-        local udefId = GetUnitDefID(unitID);
-        if udefId ~= nil then
-            local udef = udefTab[udefId]
-
-            local selfdBlastId = weapNamTab[lower(udef[selfdTag])].id
-            local selfdBlastRadius = weapTab[selfdBlastId][aoeTag]
-
-            glColor(1, .6, .3, .8)
-            glDrawGroundCircle(x, y, z, udef["decloakDistance"], blastCircleDivs)
-        end
+    for unitID, property in pairs(units) do
+        local x,y,z = spGetUnitPosition(unitID)
+		if ((onlyDrawRangeWhenSelected and spIsUnitSelected(unitID)) or onlyDrawRangeWhenSelected == false) and spIsSphereInView(x,y,z,math.max(property[1],property[2])) then
+			local xDifference = camX - x
+			local yDifference = camY - y
+			local zDifference = camZ - z
+			local camDistance = math.sqrt(xDifference*xDifference + yDifference*yDifference + zDifference*zDifference)
+			
+			local lineWidthMinus = (camDistance/2000)
+			if lineWidthMinus > 2 then
+				lineWidthMinus = 2
+			end
+			local lineOpacityMultiplier = 0.85
+			if fadeOnCameraDistance then
+				lineOpacityMultiplier = (1100/camDistance)*fadeMultiplier
+				if lineOpacityMultiplier > 1 then
+					lineOpacityMultiplier = 1
+				end
+			end
+			if lineOpacityMultiplier > 0.15 then
+				if showLineGlow then
+					glLineWidth(10)
+					if property[1] > 0 then
+						glColor(1, .6, .3, .03*lineOpacityMultiplier*opacityMultiplier)
+						glDrawGroundCircle(x, y, z, property[1], circleDivs)
+					end
+					if property[2] > 0 then
+						glColor(0, 0, 1, .03*lineOpacityMultiplier*opacityMultiplier)
+						glDrawGroundCircle(x, y, z, property[2], circleDivs)
+					end
+				end
+				glLineWidth(2.2-lineWidthMinus)
+				if property[1] > 0 then
+					glColor(1, .6, .3, .44*lineOpacityMultiplier*opacityMultiplier)
+					glDrawGroundCircle(x, y, z, property[1], circleDivs)
+				end
+				if property[2] > 0 then
+					glColor(0, 0, 1, .44*lineOpacityMultiplier*opacityMultiplier)
+					glDrawGroundCircle(x, y, z, property[2], circleDivs)
+				end
+			end
+		end
     end
 
     glDepthTest(false)
@@ -232,20 +275,19 @@ function detectSpectatorView()
         spectatorMode = true
     end
 
-    spies = {}
-    gremlins = {}
+    units = {}
 
     local visibleUnits = spGetAllUnits()
     if visibleUnits ~= nil then
         for _, unitID in ipairs(visibleUnits) do
-            local udefId = GetUnitDefID(unitID)
-            if udefId ~= nil then
-                if isSpy(udefId) then
-                    spies[unitID] = true
+            local unitDefID = GetUnitDefID(unitID)
+            if unitDefID ~= nil then
+                if isSpy(unitDefID) then
+					addSpy(unitID, unitDefID)
                 end
 
                 if isGremlin(unitDefID) then
-                    gremlins[unitID] = true
+					addGremlin(unitID, unitDefID)
                 end
             end
         end
